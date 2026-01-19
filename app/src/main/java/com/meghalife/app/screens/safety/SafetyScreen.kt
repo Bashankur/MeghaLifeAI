@@ -50,7 +50,7 @@ fun SafetyScreen() {
     val fusedLocationClient =
         remember { LocationServices.getFusedLocationProviderClient(context) }
 
-    /* ───────── FIREBASE ───────── */
+    /* ───────── FIREBASE SOS ───────── */
     val uid = FirebaseAuth.getInstance().currentUser?.uid
     val sosRef =
         FirebaseDatabase.getInstance().getReference("sos_alerts")
@@ -120,7 +120,7 @@ fun SafetyScreen() {
                 }
             }
 
-            /* 📍 LOCATION SHARING (PLACEHOLDER) */
+            /* 📍 LOCATION SHARING */
             AppCard(modifier = Modifier.fillMaxWidth()) {
 
                 SectionHeader(t("Location Sharing"))
@@ -129,7 +129,7 @@ fun SafetyScreen() {
 
                 Text(
                     text = t(
-                        "Share your live location with trusted contacts during emergencies."
+                        "Quickly share your current location with trusted contacts."
                     ),
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -138,7 +138,18 @@ fun SafetyScreen() {
 
                 OutlinedButton(
                     onClick = {
-                        // TODO: Foreground service based live sharing
+
+                        if (!hasLocationPermission) {
+                            permissionLauncher.launch(
+                                Manifest.permission.ACCESS_FINE_LOCATION
+                            )
+                            return@OutlinedButton
+                        }
+
+                        shareCurrentLocation(
+                            context = context,
+                            fusedLocationClient = fusedLocationClient
+                        )
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -177,6 +188,51 @@ fun SafetyScreen() {
     }
 }
 
+/* ───────── LOCATION SHARE HELPER ───────── */
+private fun shareCurrentLocation(
+    context: android.content.Context,
+    fusedLocationClient: com.google.android.gms.location.FusedLocationProviderClient
+) {
+
+    val hasPermission =
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+    if (!hasPermission) return
+
+    try {
+        fusedLocationClient.lastLocation
+            .addOnSuccessListener { location ->
+
+                val link =
+                    if (location != null) {
+                        "https://maps.google.com/?q=${location.latitude},${location.longitude}"
+                    } else {
+                        "https://maps.google.com"
+                    }
+
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(
+                        Intent.EXTRA_TEXT,
+                        "📍 My current location:\n$link"
+                    )
+                }
+
+                context.startActivity(
+                    Intent.createChooser(
+                        shareIntent,
+                        "Share location via"
+                    )
+                )
+            }
+    } catch (_: SecurityException) {
+        // Permission revoked while app is running
+    }
+}
+
 /* ───────── REUSABLE CALL BUTTON ───────── */
 @Composable
 private fun EmergencyCallButton(
@@ -187,10 +243,9 @@ private fun EmergencyCallButton(
 
     OutlinedButton(
         onClick = {
-            val intent = Intent(Intent.ACTION_DIAL).apply {
-                data = "tel:$number".toUri()
-            }
-            context.startActivity(intent)
+            context.startActivity(
+                Intent(Intent.ACTION_DIAL, "tel:$number".toUri())
+            )
         },
         modifier = Modifier
             .fillMaxWidth()
